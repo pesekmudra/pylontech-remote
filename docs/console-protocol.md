@@ -32,6 +32,14 @@ All are read-only. Every other command is refused by `pylontech_remote/allowlist
 The module number goes right after the command (`data 2 history 15`). The `help` text does not
 show this argument. A module that is not present answers `Target device is not present`.
 
+## Effect on the BMS-CAN link
+
+While the master prints `datalist`, it stops talking on CAN. Measured on US3000C B69.25 with a
+Cerbo GX: `can-bus-bms` logs `bms timeout` and the battery service leaves D-Bus until shortly after
+the output ends (`datalist event 0`: ~4 s output, ~2 s outage; `datalist history 0`: ~116 s output,
+~111 s outage). `data event|history I` for 1886 records in a row caused no outage. Whether `pwr` and
+`bat` are safe over long periods has not been measured.
+
 ## Stored records
 
 - **History**: one record every 30 min, ring buffer of ~1800 records (~37 days). When full, the
@@ -89,6 +97,18 @@ BatteryView saves two text files per module, `<barcode>_event_<YYYYMMDDhhmmss>.t
 
 `info`, `stat` and `pwr` are stored as received. The `datalist` part is stored with CRLF line
 ends; where the console paged, a line of 50 spaces remains (before rows 15, 31, 47, …).
+
+BatteryView's HisGet tool (`HisDataExport`, version 3.0.40) also saves detailed files,
+`<barcode>_event_<YYYYMMDDhhmmss>_detailed.txt` and `<barcode>_history_<…>_detailed.txt`:
+
+- detailed event file: `info`, `stat`, `pwr`, `data event I` for every record, oldest first;
+- detailed history file: `info`, `stat`, `data history I` for every record, oldest first.
+
+They are the console replies one after the other, unchanged (with the prompt and each command's
+echo). In the files compared, BatteryView's own commands were sometimes garbled on the way to the
+battery (`distory 991`), and records repeated or missing as a result; the last records of the
+table were not read. `pylontech_export.py` reads from the newest record down, checks every reply
+and reads it again when incomplete, so its files have each record once.
 
 `pylontech_export.py` produces the same files:
 

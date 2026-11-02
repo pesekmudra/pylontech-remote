@@ -8,7 +8,10 @@ Two modes:
   (`info`, `stat`, `pwr`, `datalist event 0`, `datalist history 0`). Move the cable from module
   to module for a complete set.
 
-Per module `<barcode>_event_<stamp>.txt` and `<barcode>_history_<stamp>.txt`
+The logs to save, like BatteryView's HisGet tool (--logs, default event,history):
+  event, history              `<barcode>_event_<stamp>.txt`, `<barcode>_history_<stamp>.txt`
+  detailevent, detailhistory  `<barcode>_event_<stamp>_detailed.txt`, `..._history_..._detailed.txt`:
+                              every record with its cells (`data event|history <i>`)
 (see pylontech_remote/export.py), plus README.txt and raw/ with every console reply verbatim.
 
 Progress, the result and errors are printed as JSON lines on stdout:
@@ -19,7 +22,8 @@ Progress, the result and errors are printed as JSON lines on stdout:
 
 Only allow-listed read commands are sent. Holds the port for the whole run (stop Live first).
 
-  python3 pylontech_export.py [--connected] [--gap 0.2] [--outdir /data/pylontech/exports]
+  python3 pylontech_export.py [--connected] [--logs event,history,detailevent,detailhistory]
+                              [--gap 0.2] [--outdir /data/pylontech/exports]
 """
 import argparse
 import hashlib
@@ -39,6 +43,8 @@ from pylontech_remote.session import (ConsoleSession, ConsoleError, default_port
 
 RETRIES = 5
 CRLF = '\r\n'
+KINDS = ('event', 'history')
+LOGS = ('event', 'history', 'detailevent', 'detailhistory')
 _stop = False
 
 
@@ -60,10 +66,11 @@ def emit(obj):
 
 
 class Exporter(object):
-    def __init__(self, session, clock=time.time, limit=None):
+    def __init__(self, session, clock=time.time, limit=None, logs=KINDS):
         self.s = session
         self.clock = clock
         self.limit = limit        # test runs: only the newest `limit` records per slave table
+        self.logs = logs          # which of LOGS to save
         self.raw = {}             # zip path -> bytes (every reply, verbatim)
         self.files = {}           # zip path -> bytes (BatteryView-format files)
         self.summary = []         # per module, for README / result
@@ -133,30 +140,52 @@ class Exporter(object):
         return self.verbatim(1, info, stat, pwr, stamp, 'verbatim (datalist on the master)')
 
     def verbatim(self, n, info, stat, pwr, stamp, source):
-        """`datalist event|history 0` of the module whose console this is; False without datalist."""
-        self.progress(step='datalist', module=n, kind='event')
-        ev = self.run('datalist event 0', idle=10.0, total=120.0)
-        self.progress(step='datalist', module=n, kind='history')
-        hi = self.run('datalist history 0', idle=10.0, total=600.0)
-        complete = parsers.is_complete(ev.text) and parsers.is_complete(hi.text)
-        if not complete or parsers.is_invalid(ev.text) or parsers.is_invalid(hi.text):
-            return False
+        """The selected logs of the module whose console this is; False without datalist."""
+        replies = [('info', info), ('stat', stat), ('pwr', pwr)]
+        tables = {}
+        for kind in KINDS:
+            if kind not in self.logs:
+                continue
+            self.progress(step='datalist', module=n, kind=kind)
+            reply = self.run('datalist %s 0' % kind, idle=10.0, total=120.0 if kind == 'event' else 600.0)
+            if not parsers.is_complete(reply.text) or parsers.is_invalid(reply.text):
+                return False
+            tables[kind] = reply
         barcode = self.unique_barcode(parsers.parse_info(info.text).get('barcode'), n)
-        # BatteryView: event file = info, stat, pwr, datalist event; history = info, stat, datalist history
-        self.files[export.file_name(barcode, 'event', stamp)] = (
-            info.data + stat.data + pwr.data + export.batteryview_table(ev.data))
-        self.files[export.file_name(barcode, 'history', stamp)] = (
-            info.data + stat.data + export.batteryview_table(hi.data))
-        for r, name in ((info, 'info'), (stat, 'stat'), (pwr, 'pwr'),
-                        (ev, 'datalist_event'), (hi, 'datalist_history')):
-            self.raw['raw/%s_%s.txt' % (barcode, name)] = r.data
         st = parsers.parse_stat(stat.text)
+        self.cells[n] = parsers.to_int(dict(parsers.parse_kv(info.text)).get('Cell Number'))
+        missing = {}
+        # BatteryView: event file = info, stat, pwr, datalist event; history = info, stat, datalist history
+        for kind, reply in tables.items():
+            head = self.head(kind, info, stat, pwr)
+            self.files[export.file_name(barcode, kind, stamp)] = (
+                b''.join(r.data for r in head) + export.batteryview_table(reply.data))
+            replies.append(('datalist_%s' % kind, reply))
+        detailed = [kind for kind in KINDS if 'detail' + kind in self.logs]
+        for kind in detailed:
+            self.records_total += st.get('%s_items' % kind) or 0
+        for kind in detailed:
+            records, raw, miss = self.read_all(n, kind, st.get('%s_items' % kind) or 0, local=True)
+            self.save_detailed(barcode, kind, stamp, self.head(kind, info, stat, pwr), records)
+            self.raw['raw/%s_data_%s.txt' % (barcode, kind)] = raw
+            if miss:
+                missing[kind] = sorted(set(miss))
+        for name, r in replies:
+            self.raw['raw/%s_%s.txt' % (barcode, name)] = r.data
         self.summary.append({'module': n, 'barcode': barcode,
                              'fw': parsers.parse_info(info.text).get('fw'),
                              'source': source,
                              'event': st.get('event_items'), 'history': st.get('history_items'),
-                             'missing': {}})
+                             'missing': missing})
         return True
+
+    @staticmethod
+    def head(kind, info, stat, pwr):
+        return [info, stat, pwr] if kind == 'event' else [info, stat]
+
+    def save_detailed(self, barcode, kind, stamp, head, records):
+        self.files[export.file_name(barcode, kind, stamp, detailed=True)] = (
+            export.detailed_file([r.data for r in head], records))
 
     # -- slaves: record by record ---------------------------------------------------------------
     def slave_header(self, n):
@@ -168,17 +197,19 @@ class Exporter(object):
         self.cells[n] = n_cells
         return info, stat, pwr, st
 
-    def read_records(self, n, kind, count, known=None):
+    def read_records(self, n, kind, count, known=None, local=False):
         """Read `data n kind i` from the newest record down to 0. When the battery drops its oldest
         block meanwhile, indexes shift: reading downwards only re-reads a few (deduplicated).
-        With `known` (records already read) it stops at the first record it already has."""
+        With `known` (records already read) it stops at the first record it already has.
+        `local`: `data kind i` of the module whose console this is, as BatteryView reads it."""
         records = {}
         raw = io.BytesIO()
         missing = []
         lowest = max(0, count - self.limit) if self.limit else 0
         for i in range(count - 1, lowest - 1, -1):
             try:
-                reply = self.run('data %d %s %d' % (n, kind, i),
+                command = 'data %s %d' % (kind, i) if local else 'data %d %s %d' % (n, kind, i)
+                reply = self.run(command,
                                  check=lambda t, i=i: parsers.is_record_reply(t, i, self.cells.get(n)))
             except ConsoleError:
                 missing.append(i)
@@ -189,6 +220,7 @@ class Exporter(object):
                 continue                                  # past the end after a shift
             raw.write(reply.data)
             rec = parsers.parse_data_record(reply.text)
+            rec['reply'] = reply.data
             if not rec.get('time'):
                 missing.append(i)
                 continue
@@ -201,25 +233,34 @@ class Exporter(object):
                 self.progress(step='records', module=n, kind=kind, done=count - i, total=count)
         return records, raw.getvalue(), missing
 
+    def read_all(self, n, kind, count, local=False):
+        """All records of a table, oldest first (in the battery's order, also when its clock was
+        changed), the raw replies and the indexes that could not be read."""
+        records, raw, miss = self.read_records(n, kind, count, local=local)
+        ordered = list(records.values())[::-1]
+        # records written while we were reading
+        stat = 'stat' if local else 'stat %d' % n
+        again = parsers.parse_stat(self.run(stat, expect='CYCLE Times').text)
+        new_count = again.get('%s_items' % kind) or count
+        if new_count != count:
+            self.records_total += max(new_count - count, 1)
+            more, raw2, miss2 = self.read_records(n, kind, new_count, known=records, local=local)
+            ordered += list(more.values())[::-1]
+            raw += raw2
+            miss += miss2
+        return ordered, raw, miss
+
     def slave(self, n, info, stat, pwr, st, stamp):
         barcode = self.unique_barcode(parsers.parse_info(info.text).get('barcode'), n)
         missing = {}
-        for kind, count in (('event', st.get('event_items') or 0),
-                            ('history', st.get('history_items') or 0)):
-            records, raw, miss = self.read_records(n, kind, count)
-            # records written while we were reading
-            again = parsers.parse_stat(self.run('stat %d' % n, expect='CYCLE Times').text)
-            new_count = again.get('%s_items' % kind) or count
-            if new_count != count:
-                self.records_total += max(new_count - count, 1)
-                more, raw2, miss2 = self.read_records(n, kind, new_count, known=records)
-                records.update(more)
-                raw += raw2
-                miss += miss2
-            ordered = [records[k] for k in sorted(records)]
-            head = info.data + stat.data + (pwr.data if kind == 'event' else b'')
-            self.files[export.file_name(barcode, kind, stamp)] = (
-                head + export.reconstructed_table(kind, n, ordered))
+        for kind in self.kinds_to_read():
+            records, raw, miss = self.read_all(n, kind, st.get('%s_items' % kind) or 0)
+            head = self.head(kind, info, stat, pwr)
+            if kind in self.logs:
+                self.files[export.file_name(barcode, kind, stamp)] = (
+                    b''.join(r.data for r in head) + export.reconstructed_table(kind, n, records))
+            if 'detail' + kind in self.logs:
+                self.save_detailed(barcode, kind, stamp, head, records)
             self.raw['raw/%s_data_%s.txt' % (barcode, kind)] = raw
             if miss:
                 missing[kind] = sorted(set(miss))
@@ -231,6 +272,9 @@ class Exporter(object):
                              'source': 'reconstructed from data %d event|history <i>' % n,
                              'event': st.get('event_items'), 'history': st.get('history_items'),
                              'missing': missing})
+
+    def kinds_to_read(self):
+        return [k for k in KINDS if k in self.logs or 'detail' + k in self.logs]
 
     # -- whole stack ------------------------------------------------------------------------------
     def run_all(self):
@@ -249,7 +293,8 @@ class Exporter(object):
             self.progress(step='slave_header', module=n)
             heads[n] = self.slave_header(n)
             st = heads[n][3]
-            for c in (st.get('event_items') or 0, st.get('history_items') or 0):
+            for kind in self.kinds_to_read():
+                c = st.get('%s_items' % kind) or 0
                 self.records_total += min(c, self.limit) if self.limit else c
         for n in by_records:
             info, stat, pwr, st = heads[n]
@@ -290,8 +335,7 @@ class Exporter(object):
             'Battery clock (battery local time): %s' % (battery_time or 'not shown by this module'),
             '',
             'Read on the console of the module itself (device address %d), as BatteryView does:' % m['module'],
-            '  %s_event_%s.txt    info + stat + pwr + datalist event 0' % (m['barcode'], stamp),
-            '  %s_history_%s.txt  info + stat + datalist history 0' % (m['barcode'], stamp),
+        ] + self.readme_files(m['barcode'], stamp) + [
             'Console replies verbatim; the datalist tables stored the way BatteryView stores them',
             '(CRLF lines, a line of spaces where the console paged).',
             'raw/: every console reply exactly as received.',
@@ -299,6 +343,13 @@ class Exporter(object):
             'Module: %s  fw %s  events %s  history %s' % (m['barcode'], m['fw'], m['event'], m['history']),
             '',
         ]).encode('ascii', errors='replace')
+
+    def readme_files(self, barcode, stamp):
+        rows = (('event', '_event_%s.txt', 'info + stat + pwr + datalist event 0'),
+                ('history', '_history_%s.txt', 'info + stat + datalist history 0'),
+                ('detailevent', '_event_%s_detailed.txt', 'info + stat + pwr + data event <i>, with the cells'),
+                ('detailhistory', '_history_%s_detailed.txt', 'info + stat + data history <i>, with the cells'))
+        return ['  %s%s  %s' % (barcode, name % stamp, what) for log, name, what in rows if log in self.logs]
 
     def readme_stack(self, stamp, battery_time):
         lines = [
@@ -315,8 +366,7 @@ class Exporter(object):
             'Battery clock at start (battery local time): %s' % battery_time,
             '',
             'Files per module, as saved by Pylontech BatteryView:',
-            '  <barcode>_event_%s.txt    info + stat + pwr + event table' % stamp,
-            '  <barcode>_history_%s.txt  info + stat + history table' % stamp,
+        ] + self.readme_files('<barcode>', stamp) + [
             '',
             'All modules were read through the console of the master (module 1).',
             'Master: console replies verbatim; tables from "datalist event|history 0" stored the way',
@@ -369,11 +419,18 @@ def main():
     ap.add_argument('--outdir', default='/data/pylontech/exports')
     ap.add_argument('--connected', action='store_true',
                     help='only the module the cable is plugged into, verbatim (datalist)')
+    ap.add_argument('--logs', default=','.join(KINDS),
+                    help='which logs to save, comma separated: %s' % ', '.join(LOGS))
     ap.add_argument('--keep', type=int, default=None,
                     help='keep this many ZIPs of the same kind (default: 5 stack, 30 single module)')
     ap.add_argument('--limit', type=int, default=None,
                     help='TEST ONLY: newest N records per slave table (the ZIP is marked incomplete)')
     a = ap.parse_args()
+
+    logs = a.logs.split(',')
+    if any(log not in LOGS for log in logs):
+        emit({'type': 'error', 'error': 'unknown --logs %s (use %s)' % (a.logs, ', '.join(LOGS))})
+        return 2
 
     signal.signal(signal.SIGTERM, _on_signal)
     signal.signal(signal.SIGINT, _on_signal)
@@ -389,7 +446,7 @@ def main():
         emit({'type': 'error', 'error': 'port_open: %s' % e})
         return 2
     t0 = time.time()
-    ex = Exporter(session, limit=a.limit)
+    ex = Exporter(session, limit=a.limit, logs=logs)
     try:
         stamp, battery_time = ex.run_connected() if a.connected else ex.run_all()
     except Cancelled:

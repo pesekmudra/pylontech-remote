@@ -18,6 +18,10 @@ Through the master:
   same layout. All value columns match the module's own table (verified on 304 rows); the
   columns the master cannot provide (Rec_chg/dsg_cur, Sys_Rec_chg/dsg_cur, ID Cur) are `-`,
   as in the module's own oldest rows. The table is marked as reconstructed.
+
+Detailed files (`<barcode>_event_<…>_detailed.txt`, `<barcode>_history_<…>_detailed.txt`, as saved
+by BatteryView's HisGet tool) are the console replies one after the other: `info`, `stat`, `pwr`
+(event only), then `data event|history I` for every record, oldest first, with the cells.
 """
 import re
 
@@ -77,5 +81,11 @@ def reconstructed_table(kind, module, records):
     return CRLF.join(lines) + CRLF
 
 
-def file_name(barcode, kind, stamp):
-    return '%s_%s_%s.txt' % (re.sub(r'[^A-Za-z0-9]', '_', barcode or 'unknown'), kind, stamp)
+def detailed_file(head, records):
+    """A detailed file: the replies in `head` and the records' `data` replies, as received."""
+    return b''.join(head) + b''.join(rec['reply'] for rec in records)
+
+
+def file_name(barcode, kind, stamp, detailed=False):
+    return '%s_%s_%s%s.txt' % (re.sub(r'[^A-Za-z0-9]', '_', barcode or 'unknown'), kind, stamp,
+                               '_detailed' if detailed else '')

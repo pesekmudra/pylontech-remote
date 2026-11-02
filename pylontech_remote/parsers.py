@@ -66,14 +66,18 @@ def parse_info(text):
 def parse_stat(text):
     kv = parse_kv(text)
 
-    def num(label):
-        v = _first(kv, label)
-        return to_int(v.split()[0]) if v else None
+    def num(*labels):
+        for label in labels:
+            v = _first(kv, label)
+            if v:
+                return to_int(v.split()[0])
+        return None
 
     return {
         'address':       num('Device address'),
-        'event_items':   num('Data Items'),
-        'history_items': num('HisData Items'),
+        # the labels depend on the firmware (the same list as in BatteryView's HisGet tool)
+        'event_items':   num('Data Items', 'EvenData Items', 'EventData Items'),
+        'history_items': num('HisData Items', 'HistData Items'),
         'soh_pct':       num('SOH'),
         'soc_pct':       num('Pwr Percent'),
         'cycles':        num('CYCLE Times'),

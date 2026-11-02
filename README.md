@@ -33,6 +33,7 @@ the Cerbo unattended for years, through Venus OS updates. Where it stands:
 | Installation | [From a USB stick](#from-a-usb-stick-no-ssh) without SSH, or [over SSH](#over-ssh). USB stick used on three Cerbos, SSH on one. Live and the export of the connected module tested after a USB stick installation. Uninstall from a USB stick: used once, its log shows no errors; the result was not checked separately. |
 | Other batteries | Tested on US3000C with firmware B69.25 (4 modules) and B69.13 (1 module). Other models, firmwares and stacks still need testing; console output and relaying of the other modules may differ. Every installation saves the battery's raw replies (`diagnostics.txt`) to adapt the program to them. |
 | Export of the connected module | Tested with the cable on the master. With the cable on another module: implemented, not yet tested on hardware. |
+| Detailed logs | Tested on 4× US3000C B69.25 with the cable on the master: all four logs of the connected module (values equal to the default tables), the whole stack with a test limit of 10 records per table. Replaying real BatteryView detailed files (B69.12) gives the same bytes, record by record. The dashboard's tick boxes are tested on a test page only. |
 
 ---
 
@@ -42,8 +43,11 @@ the Cerbo unattended for years, through Venus OS updates. Where it stands:
   (`pylontech_remote/allowlist.py`) before a byte is written; commands that change, clear, test or
   control anything (`time`, `datac`, `config <x> <val>`, `shut`, `ctrl`, …) are refused. Tests
   assert this.
-- Nothing on the Victron side is changed (no ESS/DVCC/BMS settings, no D-Bus battery service). The
-  BMS-CAN link is not touched.
+- Nothing on the Victron side is changed (no ESS/DVCC/BMS settings, no D-Bus battery service).
+- **`datalist` on the master interrupts its BMS-CAN link** while it prints: Venus OS reports
+  `bms timeout` and the battery service disappears, for ~2 min with `datalist history 0`. Measured on
+  US3000C B69.25; BatteryView uses the same command. Reading record by record (`data`, the detailed
+  logs) ran 16 min without an interruption. Both default exports use `datalist` on the master.
 - The port is opened exclusively, with DTR/RTS low before opening.
 - Finding the cable sends only Enter, and only to a USB serial converter that is not a Victron
   device and on which Venus OS has found no device; while such an adapter stays silent, at most
@@ -207,10 +211,20 @@ again: unplug the console cable from the battery before that.
 ## Logs for a warranty claim
 
 The **Warranty logs** card on the dashboard has two exports. Both write a ZIP to
-`/data/pylontech/exports/`, downloadable from the dashboard, with per module
-`<barcode>_event_<stamp>.txt` (`info`, `stat`, `pwr`, event table) and
-`<barcode>_history_<stamp>.txt` (`info`, `stat`, history table) — the files BatteryView saves —
-plus `README.txt` and `raw/` (every console reply as received). Live is paused meanwhile.
+`/data/pylontech/exports/`, downloadable from the dashboard, with `README.txt`, `raw/` (every
+console reply as received) and, per module, the logs ticked on the card — the same four that
+BatteryView's HisGet tool saves. Live is paused meanwhile.
+
+| Tick | File | Content |
+|---|---|---|
+| **Event** (default) | `<barcode>_event_<stamp>.txt` | `info`, `stat`, `pwr`, event table |
+| **History** (default) | `<barcode>_history_<stamp>.txt` | `info`, `stat`, history table |
+| **Event detailed** | `<barcode>_event_<stamp>_detailed.txt` | `info`, `stat`, `pwr`, every record with its cells (`data event <i>`) |
+| **History detailed** | `<barcode>_history_<stamp>_detailed.txt` | `info`, `stat`, every record with its cells (`data history <i>`) |
+
+From the command line: `--logs event,history,detailevent,detailhistory` (default: `event,history`).
+A detailed table takes ~0.5 s per record on the master's console, so ~15 min for a full history;
+through the master other modules take about 20 min. The times below are for the two default logs.
 
 **Export connected module** (`python3 pylontech_export.py --connected`): the module the cable is
 plugged into, read on its own console exactly as BatteryView does (`info`, `stat`, `pwr`,

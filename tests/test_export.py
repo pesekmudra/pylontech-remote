@@ -248,6 +248,75 @@ class ExporterTest(unittest.TestCase):
         self.assertEqual(len(ex.files), 2)
         self.assertTrue(all(k.startswith('X00000000TEST0001_') for k in ex.files))
 
+    def make_logs(self, logs, **kw):
+        ex, fake = self.make(**kw)
+        ex.logs = logs
+        return ex, fake
+
+    def test_connected_detailed_like_batteryview(self):
+        ex, fake = self.make_logs(('detailevent', 'detailhistory'), connected=3)
+        stamp, _ = ex.run_connected()
+        self.assertEqual(sorted(ex.files), ['X00000000TEST0003_event_%s_detailed.txt' % stamp,
+                                            'X00000000TEST0003_history_%s_detailed.txt' % stamp])
+        cmds = [w.decode().strip() for w in fake.written if w.strip()]
+        self.assertFalse([c for c in cmds if c.startswith('datalist')])
+        self.assertIn('data event 0', cmds)                        # no module number on its own console
+        self.assertIn('data history 11', cmds)
+        event = ex.files['X00000000TEST0003_event_%s_detailed.txt' % stamp]
+        history = ex.files['X00000000TEST0003_history_%s_detailed.txt' % stamp]
+        self.assertTrue(event.startswith(b'info'))
+        self.assertIn(b'CFetState', event)                         # event file: with pwr
+        self.assertNotIn(b'CFetState', history)                    # history file: without
+        found = [int(i) for i in re.findall(rb'pylon_debug>data history (\d+)', history)]
+        self.assertEqual(found, list(range(12)))                   # oldest first, each once
+        self.assertEqual(history.count(b'Battery  Volt'), 12)      # every record with its cells
+        self.assertEqual(ex.summary[0]['missing'], {})
+        self.assertIn(b'_detailed.txt', ex.readme(stamp, ''))
+
+    def test_only_one_table(self):
+        ex, fake = self.make_logs(('history',), connected=3)
+        stamp, _ = ex.run_connected()
+        self.assertEqual(sorted(ex.files), ['X00000000TEST0003_history_%s.txt' % stamp])
+        cmds = [w.decode().strip() for w in fake.written if w.strip()]
+        self.assertEqual(cmds, ['info', 'stat', 'pwr', 'datalist history 0'])
+        readme = ex.readme(stamp, '')
+        self.assertIn(b'_history_', readme)
+        self.assertNotIn(b'_event_', readme)
+
+    def test_stack_detailed(self):
+        ex, fake = self.make_logs(('detailhistory',))
+        stamp, _ = ex.run_all()
+        self.assertEqual(len(ex.files), 4)
+        self.assertTrue(all(n.endswith('_history_%s_detailed.txt' % stamp) for n in ex.files))
+        self.assertFalse([c for c in fake.data_commands if ' event ' in c])
+        master = ex.files['X00000000TEST0001_history_%s_detailed.txt' % stamp]
+        self.assertEqual(master.count(b'Battery  Volt'), 12)
+        self.assertIn(b'data history 0', master)
+        slave = ex.files['X00000000TEST0003_history_%s_detailed.txt' % stamp]
+        self.assertEqual(slave.count(b'Battery  Volt'), 12)
+        self.assertIn(b'data 3 history 0', slave)
+        self.assertEqual(ex.records_done, 48)
+
+    def test_stack_table_and_detailed_read_each_slave_once(self):
+        ex, fake = self.make_logs(('history', 'detailhistory'))
+        stamp, _ = ex.run_all()
+        self.assertEqual(len(ex.files), 8)
+        self.assertEqual(len([c for c in fake.data_commands if c.startswith('data 3 history ')]), 12)
+        self.assertIn('X00000000TEST0003_history_%s.txt' % stamp, ex.files)
+
+    def test_ring_buffer_drop_in_detailed(self):
+        ex, fake = self.make_logs(('detailhistory',), counts={'event': 3, 'history': 30},
+                                  drop_after=(2, 'history', 5))
+        stamp, _ = ex.run_all()
+        data = ex.files['X00000000TEST0002_history_%s_detailed.txt' % stamp]
+        times = re.findall(rb'Time            : ([0-9: -]+)', data)
+        self.assertEqual(len(times), len(set(times)))              # none doubled
+        self.assertEqual(times, sorted(times))                     # oldest first
+        self.assertGreaterEqual(len(times), 22)
+
+    def test_file_name_detailed(self):
+        self.assertEqual(export.file_name('X1', 'event', '2026', detailed=True), 'X1_event_2026_detailed.txt')
+
     def test_module_zips_are_kept_apart_from_stack_zips(self):
         import pylontech_export
         tmp = tempfile.mkdtemp()
