@@ -267,6 +267,11 @@ PYEOF
     fi
     say "Raw replies of the battery: $BASE/diagnostics.txt"
 fi
+# reinstalled with the cable left in: it keeps the fixed name until unplugged, but no rule is saved
+if [ "$DRY" = 0 ] && [ "$TEST" = 0 ] && [ ! -f "$BASE/udev.rules" ]; then
+    python3 "$BASE/app/pylontech_adopt.py" --use "$(readlink -f /dev/ttyPYLON)" || die "cannot save the rule"
+    sh "$BASE/boot.sh" apply
+fi
 
 # -- done --------------------------------------------------------------------------------------
 step "Done"

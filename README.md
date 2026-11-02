@@ -21,19 +21,18 @@ Based on the original project by **Martin (tejno)** — see [Credits](#credits).
 
 ## Project status
 
-**Work in progress.** Live view and both log exports work and are in use on one stack:
-4× US3000C, firmware B69.25.0.0, Cerbo GX with Venus OS v3.85. The goal is a setup that runs on
-the Cerbo unattended for years, through Venus OS updates. Where it stands:
+Live view and the log exports work and are in use on one stack: 4× US3000C, firmware B69.25.0.0,
+Cerbo GX with Venus OS v3.85. What has been tested so far:
 
 | Topic | State |
 |---|---|
 | USB adapter | Tested with an **FTDI** (FT232R) adapter (udev rule bound to the adapter's serial number) and a **CH340** (rule bound to the USB socket). The FTDI was moved between three USB sockets on two USB controllers: `/dev/ttyPYLON` was back at once, without any probing by Venus OS. |
 | Cable found automatically | A new or replaced cable is found without the installer, a CH340 is checked whenever it appears ([A new or replaced cable](#a-new-or-replaced-cable)). Tested on hardware with an FTDI: installed from a USB stick without a cable, then plugged in: adopted after ~70 s. An FTDI in use by an energy meter was skipped. The CH340 check is only tested in simulation. |
 | Venus OS updates | The udev rule is restored at every boot from `/data` (see [Keep Venus OS away from the port](#keep-venus-os-away-from-the-port)). Verified after a restart (the rule is in place before serial-starter starts; it no longer touches the port). Verified across Venus OS updates: v3.80 → v3.81 (Live kept working) and v3.81 → v3.85 (cable unplugged during the update; plugged in again it was recognised without probing, Live works). |
-| Installation | [From a USB stick](#from-a-usb-stick-no-ssh) without SSH, or [over SSH](#over-ssh). USB stick used on three Cerbos, SSH on one. Live and the export of the connected module tested after a USB stick installation. Uninstall from a USB stick: used once, its log shows no errors; the result was not checked separately. |
+| Installation | [From a USB stick](#from-a-usb-stick-no-ssh) without SSH, or [over SSH](#over-ssh). USB stick used on three Cerbos, SSH on one. Live and the export of the connected module tested after a USB stick installation. Uninstall from a USB stick: tested, nothing of the program is left on the Cerbo. |
 | Other batteries | Tested on US3000C with firmware B69.25 (4 modules) and B69.13 (1 module). Other models, firmwares and stacks still need testing; console output and relaying of the other modules may differ. Every installation saves the battery's raw replies (`diagnostics.txt`) to adapt the program to them. |
 | Export of the connected module | Tested with the cable on the master. With the cable on another module: implemented, not yet tested on hardware. |
-| Detailed logs | Tested on 4× US3000C B69.25 with the cable on the master: all four logs of the connected module (values equal to the default tables), the whole stack with a test limit of 10 records per table. Replaying real BatteryView detailed files (B69.12) gives the same bytes, record by record. The dashboard's tick boxes are tested on a test page only. |
+| Detailed logs | Tested on 4× US3000C B69.25 with the cable on the master: all four logs of the connected module (values equal to the default tables), the whole stack with a test limit of 10 records per table (a full run not yet). Replaying real BatteryView detailed files (B69.12) gives the same bytes, record by record. The dashboard's tick boxes are tested with a detailed export. |
 
 ---
 
@@ -203,8 +202,9 @@ the dashboard is then reachable on the local network.
   Never put the install and the uninstall archive on the same stick.
 - SSH: `sh /data/pylontech/uninstall.sh` (asks before deleting `/data/pylontech`).
 
-Then delete the **Battery** tab in Node-RED. After the next restart Venus OS uses the USB adapter
-again: unplug the console cable from the battery before that.
+Then delete the **Battery** tab in Node-RED, and in Menu → Configuration nodes the `ui-page`
+Pylontech and the `ui-group` BMS Console (RS232), then Deploy. After the next restart Venus OS uses
+the USB adapter again: unplug the console cable from the battery before that.
 
 ---
 
