@@ -59,7 +59,7 @@ for a in /media/*/venus-runtime-pylontech-install*.tar.gz; do
     out="$(dirname "$a")/pylontech-logs/$ID-state.txt"
     mkdir -p "$(dirname "$out")"
     { cat /tmp/pylontech-state.txt; printf '\n\n========== earlier ==========\n\n'
-      [ -f "$out" ] && head -n 1500 "$out"; } > "$out.new" && mv "$out.new" "$out"
+      if [ -f "$out" ]; then head -n 1500 "$out"; fi; } > "$out.new" && mv "$out.new" "$out"
 done
 
 uptime=$(cut -d. -f1 /proc/uptime)

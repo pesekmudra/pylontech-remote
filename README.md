@@ -22,16 +22,16 @@ Based on the original project by **Martin (tejno)** — see [Credits](#credits).
 ## Project status
 
 **Work in progress.** Live view and both log exports work and are in use on one stack:
-4× US3000C, firmware B69.25.0.0, Cerbo GX with Venus OS v3.81. The goal is a setup that runs on
-the Cerbo unattended for years, through Venus OS updates. Not there yet:
+4× US3000C, firmware B69.25.0.0, Cerbo GX with Venus OS v3.85. The goal is a setup that runs on
+the Cerbo unattended for years, through Venus OS updates. Where it stands:
 
 | Topic | State |
 |---|---|
-| USB adapter | The original project was built with an **FTDI** (FT232R) adapter. This version is developed and tested with a **CH340** adapter (udev rule bound to the USB socket). Moving back to FTDI (rule bound to the adapter's serial number) is planned. |
-| Cable found automatically | A new or replaced cable is found without the installer, a CH340 is checked whenever it appears ([A new or replaced cable](#a-new-or-replaced-cable)). Implemented and tested in simulation; not yet tested on hardware. |
-| Venus OS updates | The udev rule is restored at every boot from `/data` (see [Keep Venus OS away from the port](#keep-venus-os-away-from-the-port)). Verified after a restart (the rule is in place before serial-starter starts; it no longer touches the port). Verified across a Venus OS update (v3.80 → v3.81): Live kept working. |
-| Installation | [From a USB stick](#from-a-usb-stick-no-ssh) without SSH, or [over SSH](#over-ssh). USB stick used on two Cerbos (Venus OS v3.80 and v3.81), SSH on one. Uninstall from a USB stick: not yet tested. |
-| Other batteries | Only tested on US3000C with firmware B69.25. Other models, firmwares and stacks still need testing; console output and relaying of the other modules may differ. Every installation saves the battery's raw replies (`diagnostics.txt`) to adapt the program to them. |
+| USB adapter | Tested with an **FTDI** (FT232R) adapter (udev rule bound to the adapter's serial number) and a **CH340** (rule bound to the USB socket). The FTDI was moved between three USB sockets on two USB controllers: `/dev/ttyPYLON` was back at once, without any probing by Venus OS. |
+| Cable found automatically | A new or replaced cable is found without the installer, a CH340 is checked whenever it appears ([A new or replaced cable](#a-new-or-replaced-cable)). Tested on hardware with an FTDI: installed from a USB stick without a cable, then plugged in: adopted after ~70 s. An FTDI in use by an energy meter was skipped. The CH340 check is only tested in simulation. |
+| Venus OS updates | The udev rule is restored at every boot from `/data` (see [Keep Venus OS away from the port](#keep-venus-os-away-from-the-port)). Verified after a restart (the rule is in place before serial-starter starts; it no longer touches the port). Verified across Venus OS updates: v3.80 → v3.81 (Live kept working) and v3.81 → v3.85 (cable unplugged during the update; plugged in again it was recognised without probing, Live works). |
+| Installation | [From a USB stick](#from-a-usb-stick-no-ssh) without SSH, or [over SSH](#over-ssh). USB stick used on three Cerbos, SSH on one. Live and the export of the connected module tested after a USB stick installation. Uninstall from a USB stick: used once, its log shows no errors; the result was not checked separately. |
+| Other batteries | Tested on US3000C with firmware B69.25 (4 modules) and B69.13 (1 module). Other models, firmwares and stacks still need testing; console output and relaying of the other modules may differ. Every installation saves the battery's raw replies (`diagnostics.txt`) to adapt the program to them. |
 | Export of the connected module | Tested with the cable on the master. With the cable on another module: implemented, not yet tested on hardware. |
 
 ---
@@ -48,6 +48,9 @@ the Cerbo unattended for years, through Venus OS updates. Not there yet:
 - Finding the cable sends only Enter, and only to a USB serial converter that is not a Victron
   device and on which Venus OS has found no device; while such an adapter stays silent, at most
   once an hour after the first hour ([details](#a-new-or-replaced-cable)).
+- A cable that is not adopted yet is treated by Venus OS like any USB serial adapter: during the
+  head start of a minute (two at boot) its probes reach the battery console. No problem seen so
+  far. An adopted cable is not probed.
 
 ---
 
@@ -59,7 +62,7 @@ the Cerbo unattended for years, through Venus OS updates. Not there yet:
 | Cable | RJ45 → DB9 into the **Console** port of the **master** module only — the master relays the other modules. |
 | Link | 115200 8N1, no flow control, DTR/RTS off |
 
-Tested with: 4× US3000C, firmware B69.25.0.0, Venus OS v3.81, Cerbo GX.
+Tested with: 4× US3000C, firmware B69.25.0.0, Venus OS v3.81 and v3.85, Cerbo GX.
 
 ### Keep Venus OS away from the port
 
@@ -139,7 +142,9 @@ Plug the console cable into the Cerbo first (or later: it is then
      `INSTALLED, BATTERY NOT REACHED YET`, `FAILED`);
    - `pylontech-logs/<id>-install-log.txt`: the installer's output, newest run first;
    - `pylontech-logs/<id>-diagnostics.txt`: the battery's raw replies (they contain the modules'
-     serial numbers).
+     serial numbers);
+   - `pylontech-logs/<id>-state.txt`: the USB serial adapters before the installer runs, newest
+     run first.
 
    Plugging the stick in again repeats the installation and the test (e.g. after fixing the
    cable). Do not leave the stick in the Cerbo: Venus OS also stores VRM log backlog on inserted
