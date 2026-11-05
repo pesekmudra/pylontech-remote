@@ -134,7 +134,10 @@ Plug the console cable into the Cerbo first (or later: it is then
 
 1. Download [`venus-runtime-pylontech-install.tar.gz`](https://github.com/pesekmudra/pylontech-remote/releases/latest/download/venus-runtime-pylontech-install.tar.gz)
    from the [latest release](https://github.com/pesekmudra/pylontech-remote/releases/latest) and copy
-   it, unchanged, to the root of a FAT32 USB stick.
+   it, unchanged, to the root of a FAT32 USB stick. The name must end in `.tar.gz`: Safari on a
+   Mac unpacks downloads by default, leaving a `.tar` that the Cerbo ignores. Turn off Safari →
+   Settings → General → "Open 'safe' files after downloading" first, or re-pack the file with
+   `gzip venus-runtime-pylontech-install.tar`.
 2. Plug the stick into any free USB port of the Cerbo. About a minute later the program is
    installed: Venus OS unpacks every `venus-runtime-*.tar.gz` from an inserted stick into `/data`
    and runs its install hook as root, which runs `install.sh` without questions (the cable is
@@ -305,6 +308,12 @@ Tests: `python -m unittest discover -s tests -t .`
 ---
 
 ## Troubleshooting
+
+**The stick does nothing** — after a minute there is no `pylontech-results.txt` (or
+`pylontech-uninstall-log.txt`) on it: the Cerbo only processes files named `venus-runtime-*.tar.gz`.
+Safari on a Mac unpacks the download into a `.tar` (see
+[From a USB stick](#from-a-usb-stick-no-ssh)): re-pack it with `gzip`, or download it again with
+unpacking turned off.
 
 **Live does not start / `port_open: … held by pid …`** — something else has the port:
 ```bash
